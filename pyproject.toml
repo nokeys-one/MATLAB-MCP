@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "matlab-mcp-server"
+version = "0.1.0"
+description = "MCP server enabling AI assistants to call MATLAB for simulation, modeling, plotting, and data analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.0",
+    "psutil>=5.9",
+    "numpy>=1.24",
+    "pydantic-settings>=2.0",
+    "structlog>=23.0",
+    "starlette>=0.36",
+    "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+matlab = [
+    "matlabengine>=25.1.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+matlab-mcp = "matlab_mcp_server.__main__:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
