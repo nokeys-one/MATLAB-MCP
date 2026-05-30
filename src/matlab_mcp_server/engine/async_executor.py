@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import uuid
 import time
 from enum import Enum
@@ -35,13 +36,14 @@ class AsyncTaskExecutor:
         self._tasks: dict[str, Task] = {}
         self._futures: dict[str, asyncio.Future] = {}
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
-        self._cancel_flags: dict[str, bool] = {}
+        self._cancel_events: dict[str, threading.Event] = {}
 
     def submit(self, tool_name: str, func: Callable, *args, **kwargs) -> str:
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         task = Task(task_id=task_id, tool_name=tool_name)
         self._tasks[task_id] = task
-        self._cancel_flags[task_id] = False
+        cancel_event = threading.Event()
+        self._cancel_events[task_id] = cancel_event
 
         async def run_task():
             task.status = TaskStatus.RUNNING
@@ -51,7 +53,7 @@ class AsyncTaskExecutor:
                 result = await loop.run_in_executor(
                     self._executor, lambda: func(*args, **kwargs)
                 )
-                if self._cancel_flags.get(task_id):
+                if cancel_event.is_set():
                     task.status = TaskStatus.CANCELLED
                 else:
                     task.result = result
@@ -92,15 +94,24 @@ class AsyncTaskExecutor:
         if not task:
             return False
         if task.status == TaskStatus.RUNNING:
-            self._cancel_flags[task_id] = True
+            event = self._cancel_events.get(task_id)
+            if event:
+                event.set()
             task.status = TaskStatus.CANCELLING
             return True
         return False
 
     def is_cancelled(self, task_id: str) -> bool:
-        return self._cancel_flags.get(task_id, False)
+        event = self._cancel_events.get(task_id)
+        return event.is_set() if event is not None else False
+
+    def get_cancel_event(self, task_id: str) -> Optional[threading.Event]:
+        return self._cancel_events.get(task_id)
 
     def mark_orphaned(self, task_id: str, ttl_seconds: int):
         task = self._tasks.get(task_id)
         if task and task.status == TaskStatus.RUNNING:
             task.status = TaskStatus.ORPHANED
+            event = self._cancel_events.get(task_id)
+            if event:
+                event.set()

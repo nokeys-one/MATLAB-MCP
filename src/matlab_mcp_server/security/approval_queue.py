@@ -15,7 +15,7 @@ class ApprovalRequest:
     created_at: float = field(default_factory=time.time)
     resolved: bool = False
     approved: Optional[bool] = None
-    future: asyncio.Future = field(default_factory=lambda: asyncio.get_event_loop().create_future())
+    future: Optional[asyncio.Future] = field(default=None)
 
 
 class ApprovalQueue:
@@ -33,6 +33,7 @@ class ApprovalQueue:
             risk_level=risk_level,
             params=params,
         )
+        req.future = asyncio.get_running_loop().create_future()
         self._pending[approval_id] = req
         return req
 
@@ -42,7 +43,7 @@ class ApprovalQueue:
             return False
         req.resolved = True
         req.approved = True
-        if not req.future.done():
+        if req.future and not req.future.done():
             req.future.set_result(True)
         return True
 
@@ -52,13 +53,13 @@ class ApprovalQueue:
             return False
         req.resolved = True
         req.approved = False
-        if not req.future.done():
+        if req.future and not req.future.done():
             req.future.set_result(False)
         return True
 
     async def wait_for_approval(self, approval_id: str) -> bool:
         req = self._pending.get(approval_id)
-        if not req:
+        if not req or not req.future:
             return False
         try:
             result = await asyncio.wait_for(req.future, timeout=self._timeout)
