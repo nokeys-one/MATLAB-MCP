@@ -75,7 +75,7 @@ class ResourceMonitor:
                 break
             except Exception:
                 logger.debug("Resource monitor iteration failed", exc_info=True)
-                break
+                continue
             time.sleep(self.heartbeat_interval)
 
     def get_status(self) -> dict:

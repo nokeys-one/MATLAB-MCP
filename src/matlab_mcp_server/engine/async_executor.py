@@ -97,6 +97,9 @@ class AsyncTaskExecutor:
             return True
         return False
 
+    def is_cancelled(self, task_id: str) -> bool:
+        return self._cancel_flags.get(task_id, False)
+
     def mark_orphaned(self, task_id: str, ttl_seconds: int):
         task = self._tasks.get(task_id)
         if task and task.status == TaskStatus.RUNNING:
