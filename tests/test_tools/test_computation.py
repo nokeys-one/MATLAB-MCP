@@ -204,8 +204,9 @@ async def test_get_workspace_variable_not_found(mock_engine, mock_task_executor)
         task_executor=mock_task_executor,
         params={"variable_name": "missing"},
     )
-    assert result["success"] is True
-    assert "error" in result
+    assert result["success"] is False
+    assert result["error"] == "not found"
+    assert result["name"] == "missing"
 
 
 @pytest.mark.asyncio

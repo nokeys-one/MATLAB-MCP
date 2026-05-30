@@ -274,6 +274,9 @@ async def handle_get_workspace_variable(engine, task_executor, params, **kwargs)
     logger.info("[get_workspace_variable] 查询变量: name=%s, max_rows=%d", var_name, max_rows)
     try:
         info = await engine.get_variable_info(var_name, max_rows)
+        if "error" in info:
+            logger.warning("[get_workspace_variable] 变量不存在或查询出错: name=%s, error=%s", var_name, info["error"])
+            return {"success": False, "name": var_name, "error": info["error"]}
         logger.debug("[get_workspace_variable] 查询成功: name=%s, info_keys=%s", var_name, list(info.keys()))
         return {"success": True, **info}
     except Exception as e:
