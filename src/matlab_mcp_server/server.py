@@ -41,6 +41,7 @@ def create_server(settings: Settings) -> FastMCP:
     from .tools.registry import registry
 
     import matlab_mcp_server.tools.task_manager  # noqa: F401
+    import matlab_mcp_server.tools.computation  # noqa: F401
 
     for name, tool_def in registry.get_all().items():
         handler = tool_def["handler"]
