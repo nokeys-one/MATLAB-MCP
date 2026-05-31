@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch, mock_open
 from pathlib import Path
 
 
@@ -319,16 +319,79 @@ async def test_run_matlab_function_kwarg_string_value_escaped(mock_engine, mock_
 async def test_execute_matlab_script_path_quote_escaped(mock_engine, mock_task_executor):
     from matlab_mcp_server.tools.computation import handle_execute_matlab_script
 
+    safe_script = "x = sin(0); disp(x);"
+
     with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\my file.m"):
         with patch("matlab_mcp_server.config.Settings") as MockCls:
             MockCls.return_value = MagicMock(sandbox_dir=Path("/sandbox"))
-            result = await handle_execute_matlab_script(
-                engine=mock_engine,
-                task_executor=mock_task_executor,
-                params={"script_path": "my file.m"},
-            )
+            with patch("builtins.open", mock_open(read_data=safe_script)):
+                result = await handle_execute_matlab_script(
+                    engine=mock_engine,
+                    task_executor=mock_task_executor,
+                    params={"script_path": "my file.m"},
+                )
 
     assert result["success"] is True
     called_cmd = mock_engine.execute.call_args[0][0]
     assert "my file.m" in called_cmd
     assert called_cmd == "run('C:\\sandbox\\my file.m')"
+
+
+@pytest.mark.asyncio
+async def test_execute_matlab_script_blocks_dangerous_content(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_execute_matlab_script
+
+    malicious_script = "x = 1;\nsystem('rm -rf /');\neval('delete all');"
+
+    with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\bad.m"):
+        with patch("matlab_mcp_server.config.Settings") as MockCls:
+            MockCls.return_value = MagicMock(sandbox_dir=Path("/sandbox"))
+            with patch("builtins.open", mock_open(read_data=malicious_script)):
+                result = await handle_execute_matlab_script(
+                    engine=mock_engine,
+                    task_executor=mock_task_executor,
+                    params={"script_path": "bad.m"},
+                )
+
+    assert result["success"] is False
+    assert result["security_level"] == "L3_BLOCKED"
+    assert len(result["risks"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_execute_matlab_script_warn_requires_approval(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_execute_matlab_script
+
+    warning_script = "x = 1;\nsystem('echo hello');"
+
+    with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\warn.m"):
+        with patch("matlab_mcp_server.config.Settings") as MockCls:
+            MockCls.return_value = MagicMock(sandbox_dir=Path("/sandbox"))
+            with patch("builtins.open", mock_open(read_data=warning_script)):
+                result = await handle_execute_matlab_script(
+                    engine=mock_engine,
+                    task_executor=mock_task_executor,
+                    params={"script_path": "warn.m"},
+                )
+
+    assert result["success"] is False
+    assert result["pending_approval"] is True
+    assert result["security_level"] == "L2_APPROVAL"
+
+
+@pytest.mark.asyncio
+async def test_execute_matlab_script_file_not_found(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_execute_matlab_script
+
+    with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\noexist.m"):
+        with patch("matlab_mcp_server.config.Settings") as MockCls:
+            MockCls.return_value = MagicMock(sandbox_dir=Path("/sandbox"))
+            with patch("builtins.open", side_effect=FileNotFoundError("not found")):
+                result = await handle_execute_matlab_script(
+                    engine=mock_engine,
+                    task_executor=mock_task_executor,
+                    params={"script_path": "noexist.m"},
+                )
+
+    assert result["success"] is False
+    assert "not found" in result["error"].lower()

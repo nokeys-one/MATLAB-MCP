@@ -57,17 +57,6 @@ class EngineLockManager:
                     f"Use check_task_status() to monitor or cancel_task() to abort."
                 ),
             )
-        if self._state == EngineState.RUNNING:
-            self._lock.release()
-            raise EngineBusyError(
-                current_task_id=self._current_task_id,
-                current_task_type=self._current_task_type,
-                message=(
-                    f"MATLAB Engine is busy running '{self._current_task_type}' "
-                    f"(task_id={self._current_task_id}). "
-                    f"Use check_task_status() to monitor or cancel_task() to abort."
-                ),
-            )
         self._state = EngineState.RUNNING
         return True
 

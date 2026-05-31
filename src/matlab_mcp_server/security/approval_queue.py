@@ -22,6 +22,20 @@ class ApprovalQueue:
     def __init__(self, timeout: float = 300.0):
         self._pending: dict[str, ApprovalRequest] = {}
         self._timeout = timeout
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+
+    def _get_loop(self) -> asyncio.AbstractEventLoop:
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        if self._loop is not None:
+            return self._loop
+        self._loop = asyncio.get_event_loop()
+        return self._loop
 
     def create_request(self, operation: str, description: str,
                        risk_level: str, params: dict[str, Any]) -> ApprovalRequest:
@@ -33,7 +47,7 @@ class ApprovalQueue:
             risk_level=risk_level,
             params=params,
         )
-        req.future = asyncio.get_running_loop().create_future()
+        req.future = self._get_loop().create_future()
         self._pending[approval_id] = req
         return req
 

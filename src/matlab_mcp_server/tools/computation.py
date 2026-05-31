@@ -134,6 +134,7 @@ async def handle_run_matlab_function(engine, task_executor, params, **kwargs):
 )
 async def handle_execute_matlab_script(engine, task_executor, params, **kwargs):
     from ..security.path_sanitizer import sanitize_path, PathTraversalError
+    from ..security.injection_detector import is_code_safe
     from ..config import Settings
 
     script_rel = params["script_path"]
@@ -147,6 +148,70 @@ async def handle_execute_matlab_script(engine, task_executor, params, **kwargs):
     except PathTraversalError as e:
         logger.warning("[execute_matlab_script] 路径穿越攻击被阻止: %s, error=%s", script_rel, e)
         return {"success": False, "error": str(e)}
+
+    try:
+        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+            script_content = f.read()
+    except FileNotFoundError:
+        return {"success": False, "error": f"Script file not found: {script_rel}"}
+    except OSError as e:
+        return {"success": False, "error": f"Cannot read script file: {e}"}
+
+    safe, risks = is_code_safe(script_content)
+    blocked = [r for r in risks if r.severity == "block"]
+    warnings = [r for r in risks if r.severity == "warn"]
+
+    if blocked:
+        logger.warning(
+            "[execute_matlab_script] 脚本内容被注入检测阻止: script=%s, blocked_keywords=%s",
+            script_rel, [r.keyword for r in blocked],
+        )
+        return {
+            "success": False,
+            "error": "Script contains blocked code patterns",
+            "security_level": "L3_BLOCKED",
+            "risks": [
+                {"keyword": r.keyword, "line": r.line, "reason": r.reason}
+                for r in blocked
+            ],
+        }
+
+    if warnings:
+        logger.info(
+            "[execute_matlab_script] 检测到警告级风险: script=%s, warning_keywords=%s, 进入审批流程",
+            script_rel, [r.keyword for r in warnings],
+        )
+        aq = kwargs.get("approval_queue")
+        if aq is None:
+            return {
+                "success": False,
+                "pending_approval": True,
+                "operation": "execute_matlab_script",
+                "script_path": script_rel,
+                "security_level": "L2_APPROVAL",
+                "risks": [
+                    {"keyword": r.keyword, "line": r.line, "reason": r.reason}
+                    for r in warnings
+                ],
+                "error": "Script contains patterns requiring user approval",
+            }
+        req = aq.create_request(
+            operation="execute_matlab_script",
+            description=f"Execute script '{script_rel}' with {len(warnings)} warning(s)",
+            risk_level="L2",
+            params={"script_path": script_rel, "risks": [r.keyword for r in warnings]},
+        )
+        logger.info("[execute_matlab_script] 审批请求已创建: approval_id=%s", req.approval_id)
+        approved = await aq.wait_for_approval(req.approval_id)
+        if not approved:
+            logger.warning("[execute_matlab_script] 审批被拒绝或超时: approval_id=%s", req.approval_id)
+            return {
+                "success": False,
+                "rejected": True,
+                "approval_id": req.approval_id,
+                "error": f"Script execution was rejected or timed out",
+            }
+        logger.info("[execute_matlab_script] 审批通过: approval_id=%s", req.approval_id)
 
     try:
         full_path_escaped = full_path.replace("'", "''")
