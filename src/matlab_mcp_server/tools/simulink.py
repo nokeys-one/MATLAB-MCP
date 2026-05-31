@@ -244,8 +244,8 @@ async def handle_run_simulation(engine, task_executor, params, **kwargs):
 
     def run_sim():
         if mode in ("gui", "hybrid"):
-            engine._execute_sync(f"open_system('{safe_model}')")
-        result = engine._execute_sync(f"sim('{safe_model}')")
+            engine.execute_sync(f"open_system('{safe_model}')")
+        result = engine.execute_sync(f"sim('{safe_model}')")
         return result
 
     task_id = task_executor.submit("run_simulation", run_sim)

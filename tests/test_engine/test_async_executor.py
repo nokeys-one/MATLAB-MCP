@@ -16,8 +16,10 @@ async def test_task_completes_with_result():
     task_id = executor.submit("test_tool", lambda: 42)
     await asyncio.sleep(0.5)
     status = executor.get_status(task_id)
+    assert status is not None
     assert status["status"] == TaskStatus.COMPLETED.value
     task = executor.get_task(task_id)
+    assert task is not None
     assert task.result == 42
 
 
@@ -30,8 +32,11 @@ async def test_task_failure_captured():
     task_id = executor.submit("test_tool", failing)
     await asyncio.sleep(0.5)
     status = executor.get_status(task_id)
+    assert status is not None
     assert status["status"] == TaskStatus.FAILED.value
     task = executor.get_task(task_id)
+    assert task is not None
+    assert task.error is not None
     assert task.error["type"] == "ValueError"
 
 
@@ -47,6 +52,7 @@ async def test_cancel_running_task():
     await asyncio.sleep(0.2)
     assert executor.cancel(task_id) is True
     task = executor.get_task(task_id)
+    assert task is not None
     assert task.status == TaskStatus.CANCELLING
 
 
@@ -103,3 +109,28 @@ async def test_task_count_property():
     assert executor.task_count == 1
     executor.submit("tool2", lambda: 2)
     assert executor.task_count == 2
+
+
+@pytest.mark.asyncio
+async def test_close_shuts_down_executor():
+    executor = AsyncTaskExecutor()
+    executor.submit("tool1", lambda: 1)
+    await asyncio.sleep(0.3)
+    await executor.close()
+    assert executor._executor._shutdown is True
+
+
+@pytest.mark.asyncio
+async def test_close_cancels_running_tasks():
+    def slow():
+        import time
+        time.sleep(30)
+        return "done"
+
+    executor = AsyncTaskExecutor()
+    task_id = executor.submit("slow_tool", slow)
+    await asyncio.sleep(0.1)
+    await executor.close()
+    task = executor.get_task(task_id)
+    assert task is not None
+    assert task.status == TaskStatus.CANCELLING

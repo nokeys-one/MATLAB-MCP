@@ -1,6 +1,9 @@
 import re
+import logging
 import traceback
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def format_error(error: Exception, task_id: Optional[str] = None,
@@ -16,6 +19,9 @@ def format_error(error: Exception, task_id: Optional[str] = None,
         code = "UNDEFINED_FUNCTION"
     elif "Index exceeds" in error_str:
         code = "INDEX_ERROR"
+
+    logger.warning("[ERROR] type=%s code=%s message='%s' task_id=%s",
+                   type(error).__name__, code, error_str[:200], task_id)
 
     suggestions = {
         "RESOURCE_EXHAUSTED": "减小数据规模或重启引擎",
@@ -45,6 +51,8 @@ def format_error(error: Exception, task_id: Optional[str] = None,
 def format_divergence_error(task_id: str, divergence_time: float,
                              signal_name: str, pre_div_plot: Optional[str] = None,
                              client_vision: bool = True) -> dict:
+    logger.warning("[ERROR] SIMULATION_DIVERGENCE  task_id=%s  time=%.2fs  signal=%s",
+                   task_id, divergence_time, signal_name)
     result = {
         "success": False,
         "error": {

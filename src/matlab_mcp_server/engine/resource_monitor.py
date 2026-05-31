@@ -44,13 +44,15 @@ class ResourceMonitor:
             self._thread.join(timeout=5)
 
     def _monitor_loop(self):
+        if self._process:
+            self._process.cpu_percent(interval=None)
         while self._running:
             try:
                 if not self._process or not self._process.is_running():
                     if self._on_process_unresponsive:
                         self._on_process_unresponsive(self.pid)
                     break
-                cpu_pct = self._process.cpu_percent(interval=1.0) / 100.0
+                cpu_pct = self._process.cpu_percent(interval=None) / 100.0
                 mem_info = self._process.memory_info()
                 mem_pct = mem_info.rss / psutil.virtual_memory().total
 

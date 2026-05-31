@@ -18,7 +18,7 @@ def choose_algorithm(data_size_bytes: int) -> str:
     return "crc32"
 
 
-def add_integrity(data, data_bytes: bytes) -> dict:
+def add_integrity(data_bytes: bytes) -> dict:
     algo = choose_algorithm(len(data_bytes))
     checksum = compute_checksum(data_bytes, algo)
     return {

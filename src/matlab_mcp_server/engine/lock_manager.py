@@ -1,7 +1,10 @@
 import asyncio
+import logging
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class EngineState(Enum):
@@ -44,10 +47,15 @@ class EngineLockManager:
 
     async def acquire(self, tool_name: str, timeout: float = 5.0) -> bool:
         if tool_name in QUERY_TOOLS:
+            logger.debug("[LOCK] query tool=%s bypassing lock", tool_name)
             return True
+        logger.debug("[LOCK] acquire waiting  tool=%s  state=%s  current=%s",
+                     tool_name, self._state.value, self._current_task_type)
         try:
             await asyncio.wait_for(self._lock.acquire(), timeout=timeout)
         except asyncio.TimeoutError:
+            logger.warning("[LOCK] acquire TIMEOUT  tool=%s  blocked_by=%s (task=%s)",
+                           tool_name, self._current_task_type, self._current_task_id)
             raise EngineBusyError(
                 current_task_id=self._current_task_id,
                 current_task_type=self._current_task_type,
@@ -58,6 +66,7 @@ class EngineLockManager:
                 ),
             )
         self._state = EngineState.RUNNING
+        logger.info("[LOCK] acquired  tool=%s  state=RUNNING", tool_name)
         return True
 
     async def acquire_with_task(self, tool_name: str, task_id: str) -> bool:
@@ -65,11 +74,14 @@ class EngineLockManager:
         if result:
             self._current_task_id = task_id
             self._current_task_type = tool_name
+            logger.info("[LOCK] bound task=%s to engine  tool=%s", task_id, tool_name)
         return result
 
     async def release(self):
+        prev_tool = self._current_task_type
         self._state = EngineState.IDLE
         self._current_task_id = None
         self._current_task_type = None
         if self._lock.locked():
             self._lock.release()
+        logger.info("[LOCK] released  prev_tool=%s  state=IDLE", prev_tool)

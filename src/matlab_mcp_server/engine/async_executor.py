@@ -55,10 +55,12 @@ class AsyncTaskExecutor:
         self._tasks[task_id] = task
         cancel_event = threading.Event()
         self._cancel_events[task_id] = cancel_event
+        logger.info("[TASK] submit tool=%s -> task_id=%s  (active=%d)", tool_name, task_id, self.task_count)
 
         async def run_task():
             task.status = TaskStatus.RUNNING
             task.started_at = time.time()
+            logger.info("[TASK] %s RUNNING  tool=%s", task_id, tool_name)
             try:
                 loop = asyncio.get_event_loop()
                 result = await loop.run_in_executor(
@@ -66,12 +68,18 @@ class AsyncTaskExecutor:
                 )
                 if cancel_event.is_set():
                     task.status = TaskStatus.CANCELLED
+                    logger.info("[TASK] %s CANCELLED (cancel_event was set)", task_id)
                 else:
                     task.result = result
                     task.status = TaskStatus.COMPLETED
+                    elapsed = round(time.time() - task.started_at, 2)
+                    logger.info("[TASK] %s COMPLETED  elapsed=%.2fs", task_id, elapsed)
             except Exception as e:
                 task.error = {"type": type(e).__name__, "message": str(e)}
                 task.status = TaskStatus.FAILED
+                elapsed = round(time.time() - task.started_at, 2)
+                logger.error("[TASK] %s FAILED  error=%s: %s  elapsed=%.2fs",
+                             task_id, type(e).__name__, e, elapsed, exc_info=True)
             finally:
                 task.completed_at = time.time()
                 self._cleanup_expired()
@@ -104,6 +112,8 @@ class AsyncTaskExecutor:
                 self._futures.pop(task_id, None)
                 self._cancel_events.pop(task_id, None)
                 removed += 1
+        if removed:
+            logger.info("[TASK] cleanup_completed removed=%d  remaining=%d", removed, self.task_count)
         return removed
 
     def get_task(self, task_id: str) -> Optional[Task]:
@@ -132,16 +142,29 @@ class AsyncTaskExecutor:
     def task_count(self) -> int:
         return len(self._tasks)
 
+    async def close(self):
+        for task in self._tasks.values():
+            if task.status in (TaskStatus.RUNNING, TaskStatus.ORPHANED):
+                event = self._cancel_events.get(task.task_id)
+                if event:
+                    event.set()
+                task.status = TaskStatus.CANCELLING
+        self._executor.shutdown(wait=False)
+        logger.info("[TASK] AsyncTaskExecutor closed  remaining=%d", self.task_count)
+
     def cancel(self, task_id: str) -> bool:
         task = self._tasks.get(task_id)
         if not task:
+            logger.warning("[TASK] cancel failed: task_id=%s not found", task_id)
             return False
         if task.status == TaskStatus.RUNNING:
             event = self._cancel_events.get(task_id)
             if event:
                 event.set()
             task.status = TaskStatus.CANCELLING
+            logger.info("[TASK] %s CANCELLING  tool=%s", task_id, task.tool_name)
             return True
+        logger.warning("[TASK] cancel ignored: task_id=%s status=%s", task_id, task.status)
         return False
 
     def is_cancelled(self, task_id: str) -> bool:
@@ -158,3 +181,4 @@ class AsyncTaskExecutor:
             event = self._cancel_events.get(task_id)
             if event:
                 event.set()
+            logger.warning("[TASK] %s ORPHANED  tool=%s  ttl=%ds", task_id, task.tool_name, ttl_seconds)

@@ -23,7 +23,7 @@ def test_auto_select_algorithm():
 
 
 def test_add_integrity_fields():
-    integrity = add_integrity({"key": "value"}, b"test")
+    integrity = add_integrity(b"test")
     assert "checksum" in integrity
     assert "algorithm" in integrity
     assert "data_size_bytes" in integrity
@@ -51,11 +51,11 @@ def test_sha256_deterministic():
 
 def test_add_integrity_auto_selects_crc32_for_large():
     data = b"x" * (2 * 1024 * 1024)
-    integrity = add_integrity(None, data)
+    integrity = add_integrity(data)
     assert integrity["algorithm"] == "crc32"
 
 
 def test_add_integrity_auto_selects_sha256_for_small():
     data = b"small"
-    integrity = add_integrity(None, data)
+    integrity = add_integrity(data)
     assert integrity["algorithm"] == "sha256"

@@ -12,7 +12,7 @@ class PayloadBreaker:
         payload_bytes = json.dumps(response, ensure_ascii=False, default=str).encode("utf-8")
 
         if len(payload_bytes) <= self.max_bytes:
-            response["integrity"] = add_integrity(response, payload_bytes)
+            response["integrity"] = add_integrity(payload_bytes)
             return response
 
         result_file = self.sandbox_dir / f"result_{task_id}.json"
@@ -30,5 +30,5 @@ class PayloadBreaker:
             "file_path": str(result_file),
             "checksum_file": str(checksum_file),
             "payload_size_bytes": len(payload_bytes),
-            "integrity": add_integrity(None, payload_bytes),
+            "integrity": add_integrity(payload_bytes),
         }
