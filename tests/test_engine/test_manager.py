@@ -195,7 +195,8 @@ async def test_execute_returns_empty_string_for_none(manager):
 async def test_get_variable_info_success(manager):
     manager._engine = MagicMock()
     manager._engine_started = True
-    manager._engine.workspace.get.return_value = 42.0
+    manager._engine.workspace.__getitem__ = MagicMock(return_value=42.0)
+    manager._engine.eval.return_value = "  Name      Size    Bytes  Class Attributes\n  x         1x1       8  double"
 
     result = await manager.get_variable_info("x")
     assert result["name"] == "x"
@@ -206,7 +207,7 @@ async def test_get_variable_info_success(manager):
 async def test_get_variable_info_not_found(manager):
     manager._engine = MagicMock()
     manager._engine_started = True
-    manager._engine.workspace.get.side_effect = Exception("Variable not found")
+    manager._engine.workspace.__getitem__ = MagicMock(side_effect=Exception("Variable not found"))
 
     result = await manager.get_variable_info("nonexistent")
     assert result["name"] == "nonexistent"

@@ -1,0 +1,13 @@
+{
+    "pythonVersion": "3.13",
+    "pythonPlatform": "Windows",
+    "extraPaths": [
+        "src",
+        "C:\\Python313\\Lib\\site-packages"
+    ],
+    "include": [
+        "src",
+        "tests"
+    ],
+    "typeCheckingMode": "basic"
+}

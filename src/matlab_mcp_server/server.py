@@ -47,45 +47,50 @@ def create_server(settings: Settings) -> FastMCP:
     import matlab_mcp_server.tools.toolbox  # noqa: F401
     import matlab_mcp_server.tools.file_ops  # noqa: F401
 
-    for name, tool_def in registry.get_all().items():
-        handler = tool_def["handler"]
+    def make_handler(h, tool_name):
+        async def tool_handler(params: dict) -> Any:
+            needs_lock = tool_name not in QUERY_TOOLS
 
-        def make_handler(h, tool_name=name):
-            async def tool_handler(params: dict) -> Any:
-                needs_lock = tool_name not in QUERY_TOOLS
-
-                if needs_lock:
-                    try:
-                        acquired = await lock_manager.acquire(tool_name)
-                        if not acquired:
-                            return {
-                                "success": False,
-                                "error": "Engine is busy, please wait or call check_task_status",
-                                "engine_state": lock_manager.state.value,
-                            }
-                    except EngineBusyError as e:
-                        return format_error(e)
-
+            if needs_lock:
                 try:
-                    result = await h(
-                        engine=engine_mgr,
-                        task_executor=task_executor,
-                        params=params,
-                        client_adapter=client_adapter,
-                        workspace=workspace,
-                        approval_queue=approval_queue,
-                    )
-                    return result
-                except Exception as e:
+                    acquired = await lock_manager.acquire(tool_name)
+                    if not acquired:
+                        return {
+                            "success": False,
+                            "error": "Engine is busy, please wait or call check_task_status",
+                            "engine_state": lock_manager.state.value,
+                        }
+                except EngineBusyError as e:
                     return format_error(e)
-                finally:
-                    if needs_lock:
-                        await lock_manager.release()
-            return tool_handler
 
+            try:
+                result = await h(
+                    engine=engine_mgr,
+                    task_executor=task_executor,
+                    params=params,
+                    client_adapter=client_adapter,
+                    workspace=workspace,
+                    approval_queue=approval_queue,
+                    settings=settings,
+                )
+                return result
+            except Exception as e:
+                return format_error(e)
+            finally:
+                if needs_lock:
+                    await lock_manager.release()
+        return tool_handler
+
+    for name, tool_def in registry.get_all().items():
         mcp.tool(
             name=name,
             description=tool_def["description"],
-        )(make_handler(handler))
+        )(make_handler(tool_def["handler"], name))
+
+    from .resources.matlab_resources import register_resources
+    register_resources(mcp, engine_mgr, task_executor, workspace, settings)
+
+    from .resources.prompts import register_prompts
+    register_prompts(mcp)
 
     return mcp

@@ -321,15 +321,16 @@ async def test_execute_matlab_script_path_quote_escaped(mock_engine, mock_task_e
 
     safe_script = "x = sin(0); disp(x);"
 
+    settings = MagicMock(sandbox_dir=Path("/sandbox"))
+
     with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\my file.m"):
-        with patch("matlab_mcp_server.config.Settings") as MockCls:
-            MockCls.return_value = MagicMock(sandbox_dir=Path("/sandbox"))
-            with patch("builtins.open", mock_open(read_data=safe_script)):
-                result = await handle_execute_matlab_script(
-                    engine=mock_engine,
-                    task_executor=mock_task_executor,
-                    params={"script_path": "my file.m"},
-                )
+        with patch("builtins.open", mock_open(read_data=safe_script)):
+            result = await handle_execute_matlab_script(
+                engine=mock_engine,
+                task_executor=mock_task_executor,
+                params={"script_path": "my file.m"},
+                settings=settings,
+            )
 
     assert result["success"] is True
     called_cmd = mock_engine.execute.call_args[0][0]
@@ -342,16 +343,16 @@ async def test_execute_matlab_script_blocks_dangerous_content(mock_engine, mock_
     from matlab_mcp_server.tools.computation import handle_execute_matlab_script
 
     malicious_script = "x = 1;\nsystem('rm -rf /');\neval('delete all');"
+    settings = MagicMock(sandbox_dir=Path("/sandbox"))
 
     with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\bad.m"):
-        with patch("matlab_mcp_server.config.Settings") as MockCls:
-            MockCls.return_value = MagicMock(sandbox_dir=Path("/sandbox"))
-            with patch("builtins.open", mock_open(read_data=malicious_script)):
-                result = await handle_execute_matlab_script(
-                    engine=mock_engine,
-                    task_executor=mock_task_executor,
-                    params={"script_path": "bad.m"},
-                )
+        with patch("builtins.open", mock_open(read_data=malicious_script)):
+            result = await handle_execute_matlab_script(
+                engine=mock_engine,
+                task_executor=mock_task_executor,
+                params={"script_path": "bad.m"},
+                settings=settings,
+            )
 
     assert result["success"] is False
     assert result["security_level"] == "L3_BLOCKED"
@@ -363,16 +364,16 @@ async def test_execute_matlab_script_warn_requires_approval(mock_engine, mock_ta
     from matlab_mcp_server.tools.computation import handle_execute_matlab_script
 
     warning_script = "x = 1;\nsystem('echo hello');"
+    settings = MagicMock(sandbox_dir=Path("/sandbox"))
 
     with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\warn.m"):
-        with patch("matlab_mcp_server.config.Settings") as MockCls:
-            MockCls.return_value = MagicMock(sandbox_dir=Path("/sandbox"))
-            with patch("builtins.open", mock_open(read_data=warning_script)):
-                result = await handle_execute_matlab_script(
-                    engine=mock_engine,
-                    task_executor=mock_task_executor,
-                    params={"script_path": "warn.m"},
-                )
+        with patch("builtins.open", mock_open(read_data=warning_script)):
+            result = await handle_execute_matlab_script(
+                engine=mock_engine,
+                task_executor=mock_task_executor,
+                params={"script_path": "warn.m"},
+                settings=settings,
+            )
 
     assert result["success"] is False
     assert result["pending_approval"] is True
@@ -383,15 +384,232 @@ async def test_execute_matlab_script_warn_requires_approval(mock_engine, mock_ta
 async def test_execute_matlab_script_file_not_found(mock_engine, mock_task_executor):
     from matlab_mcp_server.tools.computation import handle_execute_matlab_script
 
+    settings = MagicMock(sandbox_dir=Path("/sandbox"))
+
     with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\noexist.m"):
-        with patch("matlab_mcp_server.config.Settings") as MockCls:
-            MockCls.return_value = MagicMock(sandbox_dir=Path("/sandbox"))
-            with patch("builtins.open", side_effect=FileNotFoundError("not found")):
-                result = await handle_execute_matlab_script(
-                    engine=mock_engine,
-                    task_executor=mock_task_executor,
-                    params={"script_path": "noexist.m"},
-                )
+        with patch("builtins.open", side_effect=FileNotFoundError("not found")):
+            result = await handle_execute_matlab_script(
+                engine=mock_engine,
+                task_executor=mock_task_executor,
+                params={"script_path": "noexist.m"},
+                settings=settings,
+            )
 
     assert result["success"] is False
     assert "not found" in result["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_matlab_script_os_error(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_execute_matlab_script
+
+    settings = MagicMock(sandbox_dir=Path("/sandbox"))
+
+    with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\locked.m"):
+        with patch("builtins.open", side_effect=OSError("Permission denied")):
+            result = await handle_execute_matlab_script(
+                engine=mock_engine,
+                task_executor=mock_task_executor,
+                params={"script_path": "locked.m"},
+                settings=settings,
+            )
+
+    assert result["success"] is False
+    assert "Cannot read script file" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_execute_matlab_script_l2_approved(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_execute_matlab_script
+    from matlab_mcp_server.security.approval_queue import ApprovalQueue
+    import asyncio
+
+    warning_script = "x = 1;\nsystem('echo hello');"
+    settings = MagicMock(sandbox_dir=Path("/sandbox"))
+    aq = ApprovalQueue(timeout=5.0)
+
+    async def auto_approve(aq_ref):
+        await asyncio.sleep(0.1)
+        for req in aq_ref.get_pending():
+            aq_ref.approve(req["approval_id"])
+
+    task = asyncio.create_task(auto_approve(aq))
+
+    with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\warn.m"):
+        with patch("builtins.open", mock_open(read_data=warning_script)):
+            result = await handle_execute_matlab_script(
+                engine=mock_engine,
+                task_executor=mock_task_executor,
+                params={"script_path": "warn.m"},
+                settings=settings,
+                approval_queue=aq,
+            )
+
+    assert result["success"] is True
+    await task
+
+
+@pytest.mark.asyncio
+async def test_execute_matlab_script_l2_rejected(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_execute_matlab_script
+    from matlab_mcp_server.security.approval_queue import ApprovalQueue
+    import asyncio
+
+    warning_script = "x = 1;\nsystem('echo hello');"
+    settings = MagicMock(sandbox_dir=Path("/sandbox"))
+    aq = ApprovalQueue(timeout=0.5)
+
+    async def auto_reject(aq_ref):
+        await asyncio.sleep(0.1)
+        for req in aq_ref.get_pending():
+            aq_ref.reject(req["approval_id"])
+
+    task = asyncio.create_task(auto_reject(aq))
+
+    with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\warn.m"):
+        with patch("builtins.open", mock_open(read_data=warning_script)):
+            result = await handle_execute_matlab_script(
+                engine=mock_engine,
+                task_executor=mock_task_executor,
+                params={"script_path": "warn.m"},
+                settings=settings,
+                approval_queue=aq,
+            )
+
+    assert result["success"] is False
+    assert result["rejected"] is True
+    await task
+
+
+@pytest.mark.asyncio
+async def test_execute_matlab_script_engine_error(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_execute_matlab_script
+
+    safe_script = "x = sin(0);"
+    settings = MagicMock(sandbox_dir=Path("/sandbox"))
+    mock_engine.execute = AsyncMock(side_effect=Exception("MATLAB crashed"))
+
+    with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path", return_value=r"C:\sandbox\test.m"):
+        with patch("builtins.open", mock_open(read_data=safe_script)):
+            result = await handle_execute_matlab_script(
+                engine=mock_engine,
+                task_executor=mock_task_executor,
+                params={"script_path": "test.m"},
+                settings=settings,
+            )
+
+    assert result["success"] is False
+    assert "MATLAB crashed" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_execute_matlab_script_uses_custom_settings(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_execute_matlab_script
+
+    custom_sandbox = Path("/custom/sandbox/dir")
+    custom_settings = MagicMock(sandbox_dir=custom_sandbox)
+
+    with patch("matlab_mcp_server.security.path_sanitizer.sanitize_path") as mock_sanitize:
+        mock_sanitize.return_value = str(custom_sandbox / "test.m")
+        with patch("builtins.open", mock_open(read_data="x = 1;")):
+            await handle_execute_matlab_script(
+                engine=mock_engine,
+                task_executor=mock_task_executor,
+                params={"script_path": "test.m"},
+                settings=custom_settings,
+            )
+
+    mock_sanitize.assert_called_once_with("test.m", str(custom_sandbox))
+
+
+@pytest.mark.asyncio
+async def test_evaluate_expression_l2_approved(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_evaluate_expression
+    from matlab_mcp_server.security.approval_queue import ApprovalQueue
+    import asyncio
+
+    aq = ApprovalQueue(timeout=5.0)
+
+    async def auto_approve(aq_ref):
+        await asyncio.sleep(0.1)
+        for req in aq_ref.get_pending():
+            aq_ref.approve(req["approval_id"])
+
+    task = asyncio.create_task(auto_approve(aq))
+
+    result = await handle_evaluate_expression(
+        engine=mock_engine,
+        task_executor=mock_task_executor,
+        params={"expression": "system('ls')"},
+        approval_queue=aq,
+    )
+    assert result["success"] is True
+    await task
+
+
+@pytest.mark.asyncio
+async def test_evaluate_expression_l2_rejected(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_evaluate_expression
+    from matlab_mcp_server.security.approval_queue import ApprovalQueue
+    import asyncio
+
+    aq = ApprovalQueue(timeout=0.5)
+
+    async def auto_reject(aq_ref):
+        await asyncio.sleep(0.1)
+        for req in aq_ref.get_pending():
+            aq_ref.reject(req["approval_id"])
+
+    task = asyncio.create_task(auto_reject(aq))
+
+    result = await handle_evaluate_expression(
+        engine=mock_engine,
+        task_executor=mock_task_executor,
+        params={"expression": "system('ls')"},
+        approval_queue=aq,
+    )
+    assert result["success"] is False
+    assert result["rejected"] is True
+    await task
+
+
+@pytest.mark.asyncio
+async def test_evaluate_expression_engine_error(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_evaluate_expression
+
+    mock_engine.execute = AsyncMock(side_effect=Exception("eval crashed"))
+    result = await handle_evaluate_expression(
+        engine=mock_engine,
+        task_executor=mock_task_executor,
+        params={"expression": "sin(pi)"},
+    )
+    assert result["success"] is False
+    assert "eval crashed" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_workspace_variable_engine_exception(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_get_workspace_variable
+
+    mock_engine.get_variable_info = AsyncMock(side_effect=Exception("engine dead"))
+    result = await handle_get_workspace_variable(
+        engine=mock_engine,
+        task_executor=mock_task_executor,
+        params={"variable_name": "x"},
+    )
+    assert result["success"] is False
+    assert "engine dead" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_list_workspace_variables_engine_exception(mock_engine, mock_task_executor):
+    from matlab_mcp_server.tools.computation import handle_list_workspace_variables
+
+    mock_engine.list_workspace = AsyncMock(side_effect=Exception("engine dead"))
+    result = await handle_list_workspace_variables(
+        engine=mock_engine,
+        task_executor=mock_task_executor,
+        params={},
+    )
+    assert result["success"] is False
+    assert "engine dead" in result["error"]

@@ -135,13 +135,13 @@ async def handle_run_matlab_function(engine, task_executor, params, **kwargs):
 async def handle_execute_matlab_script(engine, task_executor, params, **kwargs):
     from ..security.path_sanitizer import sanitize_path, PathTraversalError
     from ..security.injection_detector import is_code_safe
-    from ..config import Settings
 
     script_rel = params["script_path"]
     script_params = params.get("params", {})
     logger.info("[execute_matlab_script] 收到请求: script_path=%s, params=%s", script_rel, script_params)
 
-    settings = Settings()
+    from ..config import Settings as _Settings
+    settings = kwargs.get("settings") or _Settings()
     try:
         full_path = sanitize_path(script_rel, str(settings.sandbox_dir))
         logger.info("[execute_matlab_script] 路径校验通过: %s -> %s", script_rel, full_path)

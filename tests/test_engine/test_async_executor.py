@@ -53,3 +53,53 @@ async def test_cancel_running_task():
 def test_get_status_unknown_task():
     executor = AsyncTaskExecutor()
     assert executor.get_status("nonexistent") is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_completed_removes_finished_tasks():
+    executor = AsyncTaskExecutor()
+    task_id1 = executor.submit("tool1", lambda: 1)
+    task_id2 = executor.submit("tool2", lambda: 2)
+    await asyncio.sleep(0.5)
+    assert executor.task_count == 2
+    removed = executor.cleanup_completed()
+    assert removed == 2
+    assert executor.task_count == 0
+    assert executor.get_task(task_id1) is None
+    assert executor.get_task(task_id2) is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_completed_preserves_running_tasks():
+    def slow():
+        import time
+        time.sleep(10)
+        return "done"
+
+    executor = AsyncTaskExecutor()
+    task_id = executor.submit("slow_tool", slow)
+    await asyncio.sleep(0.1)
+    removed = executor.cleanup_completed()
+    assert removed == 0
+    assert executor.task_count == 1
+    executor.cancel(task_id)
+
+
+@pytest.mark.asyncio
+async def test_auto_cleanup_after_ttl():
+    executor = AsyncTaskExecutor(task_ttl_seconds=0.1)
+    executor.submit("tool1", lambda: 1)
+    await asyncio.sleep(0.3)
+    executor.submit("tool2", lambda: 2)
+    await asyncio.sleep(0.3)
+    assert executor.task_count == 1
+
+
+@pytest.mark.asyncio
+async def test_task_count_property():
+    executor = AsyncTaskExecutor()
+    assert executor.task_count == 0
+    executor.submit("tool1", lambda: 1)
+    assert executor.task_count == 1
+    executor.submit("tool2", lambda: 2)
+    assert executor.task_count == 2

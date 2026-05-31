@@ -39,9 +39,9 @@ def _validate_var_name(var_name: str) -> str | None:
 async def handle_load_data(engine, task_executor, params, **kwargs):
     from ..security.path_sanitizer import sanitize_path, PathTraversalError
     from ..security.injection_detector import is_code_safe
-    from ..config import Settings
+    from ..config import Settings as _Settings
 
-    settings = Settings()
+    settings = kwargs.get("settings") or _Settings()
     file_path = params["file_path"]
     fmt = params.get("format", "csv")
     var_name = params.get("variable_name", "loaded_data")
@@ -101,9 +101,9 @@ async def handle_load_data(engine, task_executor, params, **kwargs):
 )
 async def handle_save_data(engine, task_executor, params, **kwargs):
     from ..security.path_sanitizer import sanitize_path, PathTraversalError
-    from ..config import Settings
+    from ..config import Settings as _Settings
 
-    settings = Settings()
+    settings = kwargs.get("settings") or _Settings()
     var_name = params["variable_name"]
     file_path = params["file_path"]
     fmt = params.get("format", "csv")
@@ -140,9 +140,9 @@ async def handle_save_data(engine, task_executor, params, **kwargs):
     input_schema={"type": "object", "properties": {}},
 )
 async def handle_list_sandbox_files(engine, task_executor, params, **kwargs):
-    from ..config import Settings
+    from ..config import Settings as _Settings
 
-    settings = Settings()
+    settings = kwargs.get("settings") or _Settings()
     sandbox = str(settings.sandbox_dir)
     files = []
     for root, dirs, filenames in os.walk(sandbox):
@@ -170,9 +170,9 @@ async def handle_list_sandbox_files(engine, task_executor, params, **kwargs):
 async def handle_verify_checksum(engine, task_executor, params, **kwargs):
     from ..security.path_sanitizer import sanitize_path, PathTraversalError
     from ..output.integrity import verify_checksum
-    from ..config import Settings
+    from ..config import Settings as _Settings
 
-    settings = Settings()
+    settings = kwargs.get("settings") or _Settings()
     file_path = params["file_path"]
     expected = params["expected_hash"]
     algo = params.get("algorithm", "sha256")
@@ -207,9 +207,9 @@ async def handle_verify_checksum(engine, task_executor, params, **kwargs):
 )
 async def handle_delete_data(engine, task_executor, params, audit_logger=None, **kwargs):
     from ..security.path_sanitizer import sanitize_path, PathTraversalError
-    from ..config import Settings
+    from ..config import Settings as _Settings
 
-    settings = Settings()
+    settings = kwargs.get("settings") or _Settings()
     file_path = params["file_path"]
     reason = params.get("reason", "unspecified")
 

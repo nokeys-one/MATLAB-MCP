@@ -72,9 +72,9 @@ SIMULINK_BLOCK_LIBRARIES = {
 async def handle_load_simulink_model(engine, task_executor, params, **kwargs):
     model_path = params["model_path"]
     from ..security.path_sanitizer import sanitize_path, PathTraversalError
-    from ..config import Settings
+    from ..config import Settings as _Settings
 
-    settings = Settings()
+    settings = kwargs.get("settings") or _Settings()
     try:
         full_path = sanitize_path(model_path, str(settings.sandbox_dir))
     except PathTraversalError as e:

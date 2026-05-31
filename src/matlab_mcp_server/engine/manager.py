@@ -96,8 +96,10 @@ class MatlabEngineManager:
         engine = self._engine
         assert engine is not None
         try:
-            info = engine.workspace.get(var_name)
-            return {"name": var_name, "value_preview": str(info)[:500]}
+            escaped = var_name.replace("'", "''")
+            value = engine.workspace[var_name]
+            info = engine.eval(f"whos('{escaped}')", nargout=1)
+            return {"name": var_name, "value_preview": str(value)[:500], "info": str(info)}
         except Exception as e:
             return {"name": var_name, "error": str(e)}
 
